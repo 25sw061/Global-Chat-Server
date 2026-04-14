@@ -8,7 +8,6 @@ import java.util.Scanner;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
-import java.awt.Color;
 
 public class Server {
 
@@ -17,8 +16,7 @@ public class Server {
   private ServerSocket server;
 
   public static void main(String[] args) throws IOException {
-    // CLOUD-READY: Use Railway's port if available, otherwise use 12345 for local testing
-    int port = 22395; // Changed to match your client's default port
+    int port = 22395;
     String envPort = System.getenv("PORT");
     if (envPort != null && !envPort.isEmpty()) {
         port = Integer.parseInt(envPort);
@@ -28,7 +26,6 @@ public class Server {
 
   public Server(int port) {
     this.port = port;
-    // CRITICAL FIX: Thread-safe list prevents crashes when multiple users join/leave
     this.clients = new CopyOnWriteArrayList<User>(); 
   }
 
@@ -46,7 +43,7 @@ public class Server {
       User newUser = new User(client, nickname);
       this.clients.add(newUser);
 
-      // Send welcome message with HTML formatting
+      // Send welcome message
       newUser.getOutStream().println("<div style='background: #059669; padding: 10px; border-radius: 8px;'>" +
                                      "<span style='color: #ffffff;'>✨ Welcome to the chat, " + newUser.toString() + "!</span></div>");
 
@@ -60,7 +57,7 @@ public class Server {
   public void removeUser(User user){
     this.clients.remove(user);
     System.out.println("👋 User left: " + user.getNickname());
-    broadcastAllUsers(); // Update user list when someone leaves
+    broadcastAllUsers();
   }
 
   public void broadcastMessages(String msg, User userSender) {
@@ -89,23 +86,26 @@ public class Server {
     }
   }
 
-  public void sendMessageToUser(String msg, User userSender, String targetUser){
+  public void sendPrivateMessage(String msg, User userSender, String targetUser){
     boolean find = false;
     for (User client : this.clients) {
       if (client.getNickname().equals(targetUser) && client != userSender) {
         find = true;
-        // Send to sender
-        userSender.getOutStream().println("[PRIVATE]" + targetUser + "|" + 
-          "<b style='color: #a5b4fc;'>You → " + targetUser + ":</b> <span>" + escapeHtml(msg) + "</span>");
+        // Send to sender (confirmation)
+        userSender.getOutStream().println("<div style='background: #4c1d95; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; border-left: 3px solid #a78bfa;'>" +
+                                         "<span style='color:#c4b5fd;'>🔒 Private to <b>" + targetUser + "</b>:</span> " + escapeHtml(msg) +
+                                         "</div>");
         // Send to recipient
-        client.getOutStream().println("[PRIVATE]" + userSender.getNickname() + "|" + 
-          "<b style='color: #fbbf24;'>🔒 Private from " + userSender.getNickname() + ":</b> <span>" + escapeHtml(msg) + "</span>");
+        client.getOutStream().println("<div style='background: #4c1d95; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; border-left: 3px solid #a78bfa;'>" +
+                                     "<span style='color:#c4b5fd;'>🔒 Private from <b>" + userSender.getNickname() + "</b>:</span> " + escapeHtml(msg) +
+                                     "</div>");
         break;
       }
     }
     if (!find) {
-      userSender.getOutStream().println("[PRIVATE]System|" + 
-        "<b style='color: #ef4444;'>⚠️ User '" + targetUser + "' not found or offline</b>");
+      userSender.getOutStream().println("<div style='background: #dc2626; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px;'>" +
+                                       "<span style='color:#ffffff;'>⚠️ User '<b>" + targetUser + "</b>' not found or offline</span>" +
+                                       "</div>");
     }
   }
   
@@ -134,28 +134,19 @@ class UserHandler implements Runnable {
     while (sc.hasNextLine()) {
       message = sc.nextLine();
       
-      // Handle private messages
-      if (message.startsWith("@PM ")) {
-        // Format: @PM username message
-        String[] parts = message.substring(4).split(" ", 2);
-        if (parts.length == 2) {
-          String targetUser = parts[0];
-          String privateMsg = parts[1];
-          server.sendMessageToUser(privateMsg, user, targetUser);
-        }
-      }
-      // Handle regular private messages (backward compatibility)
-      else if (message.charAt(0) == '@' && message.contains(" ")){
+      // Check for private message (@username message)
+      if (message.charAt(0) == '@' && message.contains(" ")){
         int firstSpace = message.indexOf(" ");
         String userPrivate = message.substring(1, firstSpace);
-        server.sendMessageToUser(message.substring(firstSpace+1), user, userPrivate);
+        String privateMsg = message.substring(firstSpace + 1);
+        server.sendPrivateMessage(privateMsg, user, userPrivate);
       } 
-      // Handle color change
+      // Check for color change (#hexcode)
       else if (message.charAt(0) == '#'){
         user.changeColor(message);
         this.server.broadcastAllUsers();
       } 
-      // Handle regular broadcast messages
+      // Regular broadcast message
       else {
         server.broadcastMessages(message, user);
       }
